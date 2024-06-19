@@ -1,0 +1,109 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap');
+
+
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+   font-family: "Montserrat", sans-serif;  /*<weight>: Use a value from 100 to 900*/
+}
+/*GENERAL*/
+.general {
+    padding: 2rem 3rem ;
+}
+
+/*MENU NAVEGADOR*/
+.nav {
+    background-color: red;
+    padding: 1 rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.menu {
+    list-style-type: none;
+    display: flex ;
+    flex-direction: row ;
+    flex-wrap: nowrap ;
+    gap: 1rem;
+}
+
+
+.menu-item {
+    padding: 1rem;
+    display: flex ;
+    align-items: center;
+}
+
+.logopablogrimaldi {
+    padding: 2px;
+}
+
+/*SERVICIOS*/
+.servicios {
+    display: flex;
+    flex-direction: row;
+    flex-wrap:nowrap;
+    background-color: blanchedalmond;
+    width: 800px;
+    margin: 20px;
+    padding: 30px;
+}
+
+
+
+
+/*COMENTARIOS*/
+main h1 {
+    font-size: 24px;
+    font-weight: 500;
+
+}
+
+main h2 {
+    font-size: 20px;
+}
+
+main h3 {
+    font-size: 18px;
+}
+
+footer p {
+    font-size: 10px;
+    font-style: italic;
+}
+
+main p {
+    font-size: 14px;
+    color: black;
+}
+
+
+.texto-azul {
+    color:blue ;
+}
+
+/*FONDO INICIO*/
+.fondo-inicio {
+    background-image: url(../imagenes/index.fondo.jpg);
+    background-size: cover;
+    background-position: center;
+}
+
+
+#DiseñoGráfico  h2 {
+    color: blueviolet;
+    background-color: bisque;
+}
+
+#CommunityManager h2 {
+        color: blueviolet;
+        background-color: bisque;
+    } 
+
+#DiseñoWeb h2 {
+        color: blueviolet;
+        background-color: bisque;
+    }
