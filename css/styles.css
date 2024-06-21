@@ -37,47 +37,23 @@
     padding: 2rem;
 }
 
+
 /*SERVICIOS*/
-.servicios {
-    display: flex;
-    flex-direction: row;
-    flex-wrap:nowrap;
-    background-color: blanchedalmond;
-    width: 800px;
-    margin: 20px;
-    padding: 30px;
+
+.servicio {
+    margin-bottom: 20px;
 }
 
-
-
-
-/*COMENTARIOS*/
-main h1 {
-    font-size: 24px;
-    font-weight: 500;
-
+.texto {
+    padding: 10px;
 }
 
-main h2 {
-    font-size: 20px;
+.centrar {
+display: flex;
+flex-direction:column;
+align-items: center;
+justify-content: center;
 }
-
-main h3 {
-    font-size: 18px;
-}
-
-footer p {
-    font-size: 10px;
-    font-style: italic;
-}
-
-main p {
-    font-size: 14px;
-    color: black;
-}
-
-
-
 
 /*FONDO INICIO*/
 .fondo-inicio {
@@ -86,20 +62,5 @@ main p {
     background-position: center;
 }
 
-
-#DiseñoGráfico  h2 {
-    color: blueviolet;
-    background-color: bisque;
-}
-
-#CommunityManager h2 {
-        color: blueviolet;
-        background-color: bisque;
-    } 
-
-#DiseñoWeb h2 {
-        color: blueviolet;
-        background-color: bisque;
-    }
 
 
