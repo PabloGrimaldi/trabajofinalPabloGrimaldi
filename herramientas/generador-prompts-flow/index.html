@@ -149,16 +149,29 @@
       cuadrado: { nom: 'Cuadrado 1:1', nota: 'feed', en: 'square 1:1 framing', es: 'encuadre cuadrado 1:1' }
     };
 
-    // Sugerencias contextuales: se eligen según lo que describió el usuario en la escena.
-    function sugerenciasCamara(escena) {
+    // Sugerencias contextuales: primero según el tipo de sujeto elegido; si no hay tipo, según el texto de la escena.
+    const SUGERENCIAS_POR_TIPO = {
+      persona: ['tracking', 'steadicam', 'slowmo'],
+      producto: ['orbit', 'dollyin', 'closeup'],
+      escena: ['droneview', 'craneup', 'establishing']
+    };
+
+    function sugerenciasCamara(tipo, escena) {
+      if (SUGERENCIAS_POR_TIPO[tipo]) return SUGERENCIAS_POR_TIPO[tipo];
       const t = escena.toLowerCase();
-      if (/producto|botella|reloj|zapatilla|perfume|celular|comida|plato|objeto/.test(t)) return ['orbit', 'dollyin', 'closeup'];
-      if (/camina|corr|cicl|auto|moto|bici|atleta|persona|caballo|nadad/.test(t)) return ['tracking', 'steadicam', 'slowmo'];
-      if (/paisaje|ciudad|monta|mar|playa|valle|edificio|bosque|desierto|calle/.test(t)) return ['droneview', 'craneup', 'establishing'];
+      if (/producto|botella|reloj|zapatilla|perfume|celular|comida|plato|objeto/.test(t)) return SUGERENCIAS_POR_TIPO.producto;
+      if (/camina|corr|cicl|auto|moto|bici|atleta|persona|caballo|nadad/.test(t)) return SUGERENCIAS_POR_TIPO.persona;
+      if (/paisaje|ciudad|monta|mar|playa|valle|edificio|bosque|desierto|calle/.test(t)) return SUGERENCIAS_POR_TIPO.escena;
       return ['orbit', 'dollyin', 'lowangle'];
     }
 
-    const answers = { escena: '', formato: null, camara: null, camaraTexto: '', luz: null, paleta: null, animo: '' };
+    const TIPOS = {
+      persona: { nom: 'Persona', nota: 'un rostro o un cuerpo que actúa' },
+      producto: { nom: 'Producto', nota: 'un objeto que se muestra' },
+      escena: { nom: 'Escena', nota: 'un lugar o ambiente, sin sujeto central' }
+    };
+
+    const answers = { tipo: null, escena: '', formato: null, camara: null, camaraTexto: '', luz: null, paleta: null, animo: '' };
     let fase = 0;
     let historia = [];
     let aviso = '';
@@ -203,22 +216,28 @@
     }
 
     const chipsCamara = () => {
-      const ids = sugerenciasCamara(answers.escena);
+      const ids = sugerenciasCamara(answers.tipo, answers.escena);
       return `<div class="chips">${ids.map((id) => chip('camara', id, CATALOGO[id].nom, CATALOGO[id].cmd, CATALOGO[id].nota)).join('')}
         ${chip('camara', 'otro', 'Lo escribo yo')}</div>`;
     };
 
     const FASES = [
       {
-        mensaje: () => 'Hola, soy tu Ingeniero de Prompts y Editor de Video, especializado en Google Flow. Te voy a guiar paso a paso, con una sola pregunta por turno, para no abrumarte.\n\n**Pregunta 1:** ¿Cuál es el sujeto principal, qué acción realiza y en qué entorno ocurre?',
-        panel: () => `<h3>Tu escena</h3>
+        mensaje: () => 'Hola, soy tu Ingeniero de Prompts y Editor de Video, especializado en Google Flow. Te voy a guiar paso a paso, con una sola pregunta por turno, para no abrumarte.\n\n**Pregunta 1:** ¿Tu toma gira en torno a una persona, a un producto o solo a una escena? Elegí una opción y describí qué ocurre: quién o qué aparece, qué hace y dónde.',
+        panel: () => `<h3>Tipo de toma</h3>
+          <div class="chips">${Object.entries(TIPOS).map(([id, t]) => chip('tipo', id, t.nom, null, t.nota)).join('')}</div>
+          <h3>Descripción</h3>
           <textarea class="campo" rows="3" data-campo="escena" placeholder="Ej.: una ciclista atraviesa un bosque nevado al amanecer, pedaleando entre los árboles">${esc(answers.escena)}</textarea>`,
-        valida: () => (limpia(answers.escena) ? '' : 'Contame al menos el sujeto y la acción para seguir.'),
-        resumen: () => `Escena: ${limpia(answers.escena)}`
+        valida: () => {
+          if (!answers.tipo) return 'Elegí si la toma es una persona, un producto o una escena.';
+          if (!limpia(answers.escena)) return 'Describí qué ocurre para seguir.';
+          return '';
+        },
+        resumen: () => `${TIPOS[answers.tipo].nom}: ${limpia(answers.escena)}`
       },
       {
         mensaje: () => {
-          const ids = sugerenciasCamara(answers.escena);
+          const ids = sugerenciasCamara(answers.tipo, answers.escena);
           const lista = ids.map((id) => `${CATALOGO[id].cmd} (${CATALOGO[id].nota})`).join(', ');
           return `Gracias. **Pregunta 2:** ¿qué formato necesitás y qué movimiento o ángulo de cámara imaginás?\n\nPara tu escena te sugiero ${lista}. Elegí un solo movimiento principal: si la cámara se acerca y se aleja a la vez, el modelo no sabe qué mostrar.`;
         },
@@ -301,7 +320,7 @@
     }
 
     function reiniciar() {
-      Object.assign(answers, { escena: '', formato: null, camara: null, camaraTexto: '', luz: null, paleta: null, animo: '' });
+      Object.assign(answers, { tipo: null, escena: '', formato: null, camara: null, camaraTexto: '', luz: null, paleta: null, animo: '' });
       fase = 0;
       historia = [mensajeBot(FASES[0].mensaje())];
       aviso = '';
