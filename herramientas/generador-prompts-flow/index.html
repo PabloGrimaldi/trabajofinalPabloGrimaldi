@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generador de prompts para Google Flow</title>
+  <meta name="description" content="Asistente por preguntas que arma, paso a paso, un prompt cinematográfico para pegar en Google Flow.">
+  <style>
+    :root {
+      --bg: #f6f5f2;
+      --card: #ffffff;
+      --ink: #1d1d1f;
+      --muted: #6b6b72;
+      --line: #e2e0da;
+      --accent: #2f5bd3;
+      --accent-soft: #e8eefc;
+      --warn: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 1.5rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); margin: 0 0 20px; }
+    .progreso { display: flex; gap: 6px; margin-bottom: 18px; }
+    .progreso span { flex: 1; height: 6px; border-radius: 3px; background: var(--line); }
+    .progreso span.hecho { background: var(--accent); }
+    .progreso span.actual { background: #8fa9ea; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+    .card h2 { font-size: 1.2rem; margin: 0 0 6px; }
+    .ayuda { color: var(--muted); font-size: .93rem; margin: 0 0 14px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 14px;
+      font: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .chip small { display: block; color: var(--muted); font: .75rem ui-monospace, Menlo, Consolas, monospace; }
+    .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+    .chip[aria-pressed="true"] small { color: var(--accent); }
+    label { display: block; font-weight: 600; font-size: .95rem; margin-top: 14px; }
+    .campo {
+      width: 100%;
+      font: inherit;
+      padding: 10px 12px;
+      margin-top: 6px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--ink);
+      resize: vertical;
+    }
+    .campo:focus, .chip:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 10px 18px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .btn.primario { background: var(--accent); border-color: var(--accent); color: #fff; margin-left: auto; }
+    .btn:disabled { opacity: .4; cursor: default; }
+    .aviso { color: var(--warn); font-size: .9rem; min-height: 1.4em; margin-top: 10px; }
+    .aviso.ok { color: #137333; }
+    .resultado-texto { min-height: 220px; font-size: .98rem; line-height: 1.6; }
+    .atajos { font: .85rem ui-monospace, Menlo, Consolas, monospace; color: var(--accent); word-break: break-word; }
+    .nota { color: var(--muted); font-size: .88rem; margin-top: 14px; }
+    .idioma { display: flex; gap: 8px; margin-top: 12px; }
+    .idioma .chip { padding: 6px 12px; font-size: .9rem; }
+    @media (max-width: 480px) {
+      .card { padding: 16px; }
+      .btn.primario { width: 100%; margin-left: 0; order: -1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1>Generador de prompts para Google Flow</h1>
+    <p class="sub">Respondé una pregunta por vez. Al final obtenés un prompt listo para pegar.</p>
+    <div class="progreso" id="progreso" aria-hidden="true"></div>
+    <section class="card" id="app" aria-live="polite"></section>
+  </main>
+
+  <script>
+    // Atajos de /comandos tomados del documento de referencia. Son recursos de redacción,
+    // no un lenguaje oficial de Flow: el prompt final describe cada efecto en lenguaje natural.
+    const OPCIONES = {
+      tipo: [
+        { id: 'imagen', nom: 'Imagen fija' },
+        { id: 'video', nom: 'Video' }
+      ],
+      referencia: [
+        { id: 'real', nom: 'Tengo una imagen real (foto o diseño) para usar como base' },
+        { id: 'ref', nom: 'Tengo una referencia visual que describo con palabras' },
+        { id: 'cero', nom: 'Parto de cero, sin referencia' }
+      ],
+      encuadre: [
+        { id: 'closeup', nom: 'Primer plano', cmd: '/closeup', es: 'primer plano del sujeto', en: 'close-up shot' },
+        { id: 'wide', nom: 'Plano abierto', cmd: '/wideangle', es: 'plano abierto con gran angular', en: 'wide-angle shot' },
+        { id: 'establishing', nom: 'Plano de situación', cmd: '/establishing', es: 'plano de situación que presenta el lugar', en: 'establishing shot' },
+        { id: 'lowangle', nom: 'Contrapicado', cmd: '/lowangle', es: 'contrapicado (cámara por debajo del sujeto)', en: 'low-angle shot' },
+        { id: 'highangle', nom: 'Picado', cmd: '/highangle', es: 'picado (cámara por encima del sujeto)', en: 'high-angle shot' },
+        { id: 'overhead', nom: 'Cenital', cmd: '/overhead', es: 'vista cenital', en: 'overhead top-down view' },
+        { id: 'pov', nom: 'Punto de vista', cmd: '/pov', es: 'punto de vista subjetivo', en: 'first-person point-of-view shot' },
+        { id: 'ots', nom: 'Por encima del hombro', cmd: '/overtheshoulder', es: 'plano por encima del hombro', en: 'over-the-shoulder shot' }
+      ],
+      movimiento: [
+        { id: 'orbit', nom: 'Órbita', cmd: '/orbit', es: 'la cámara orbita alrededor del sujeto', en: 'the camera orbits around the subject' },
+        { id: 'dollyin', nom: 'Acercarse', cmd: '/dollyin', es: 'la cámara avanza lentamente hacia el sujeto', en: 'the camera slowly dollies in toward the subject' },
+        { id: 'dollyout', nom: 'Alejarse', cmd: '/dollyout', es: 'la cámara se aleja gradualmente del sujeto', en: 'the camera slowly pulls back from the subject' },
+        { id: 'tracking', nom: 'Seguimiento', cmd: '/tracking', es: 'la cámara acompaña en paralelo al sujeto en movimiento', en: 'the camera tracks alongside the moving subject' },
+        { id: 'craneup', nom: 'Grúa ascendente', cmd: '/craneup', es: 'la cámara sube como si estuviera en una grúa', en: 'the camera cranes upward' },
+        { id: 'cranedown', nom: 'Grúa descendente', cmd: '/cranedown', es: 'la cámara desciende como si estuviera en una grúa', en: 'the camera cranes downward' },
+        { id: 'steadicam', nom: 'Steadicam', cmd: '/steadicam', es: 'movimiento fluido y estabilizado', en: 'smooth, stabilized steadicam-style movement' },
+        { id: 'handheld', nom: 'En mano', cmd: '/handheld', es: 'movimiento natural de cámara en mano', en: 'natural handheld camera movement' },
+        { id: 'slowmo', nom: 'Cámara lenta', cmd: '/slowmotion', es: 'con movimiento visiblemente ralentizado', en: 'in visible slow motion' },
+        { id: 'timelapse', nom: 'Timelapse', cmd: '/timelapse', es: 'timelapse que condensa el paso del tiempo', en: 'time-lapse compressing the passage of time' },
+        { id: 'hyperlapse', nom: 'Hyperlapse', cmd: '/hyperlapse', es: 'hyperlapse que avanza rápido por el espacio', en: 'hyperlapse moving quickly through space' },
+        { id: 'static', nom: 'Cámara fija', es: 'cámara fija, sin movimiento', en: 'static, locked-off camera' }
+      ],
+      luz: [
+        { id: 'goldenhour', nom: 'Hora dorada', cmd: '/goldenhour', es: 'luz dorada, cálida y suave de atardecer', en: 'warm, soft golden-hour light' },
+        { id: 'bluehour', nom: 'Hora azul', cmd: '/bluehour', es: 'luz azul y fría del crepúsculo', en: 'cool blue-hour light' },
+        { id: 'neon', nom: 'Neón', cmd: '/neonlight', es: 'iluminación de neón de colores', en: 'colorful neon lighting' },
+        { id: 'softlight', nom: 'Luz suave', cmd: '/softlight', es: 'luz difusa con sombras suaves', en: 'soft diffused light with gentle shadows' },
+        { id: 'rimlight', nom: 'Contraluz de borde', cmd: '/rimlight', es: 'contraluz de borde que separa al sujeto del fondo', en: 'rim light outlining the subject' },
+        { id: 'backlight', nom: 'Contraluz', cmd: '/backlight', es: 'luz principal detrás del sujeto', en: 'primary light behind the subject' },
+        { id: 'silhouette', nom: 'Silueta', cmd: '/silhouette', es: 'sujeto en silueta contra un fondo luminoso', en: 'subject in silhouette against a bright background' },
+        { id: 'volumetric', nom: 'Luz volumétrica', cmd: '/volumetric', es: 'rayos de luz visibles que atraviesan la atmósfera', en: 'visible volumetric light shafts through atmospheric haze' },
+        { id: 'spotlight', nom: 'Foco', cmd: '/spotlight', es: 'un foco de luz concentrado', en: 'a focused spotlight' },
+        { id: 'moody', nom: 'Atmosférica oscura', cmd: '/moody', es: 'iluminación oscura y atmosférica', en: 'dark, moody atmospheric lighting' }
+      ],
+      composicion: [
+        { id: 'thirds', nom: 'Regla de tercios', cmd: '/ruleofthirds', es: 'sujeto ubicado en un tercio del encuadre', en: 'subject placed on a rule-of-thirds intersection' },
+        { id: 'centered', nom: 'Centrado', cmd: '/centered', es: 'sujeto centrado en el encuadre', en: 'centered subject' },
+        { id: 'leadinglines', nom: 'Líneas guía', cmd: '/leadinglines', es: 'líneas del entorno que guían la mirada hacia el sujeto', en: 'leading lines guiding attention to the subject' },
+        { id: 'symmetry', nom: 'Simetría', cmd: '/symmetry', es: 'composición simétrica y equilibrada', en: 'symmetrical, balanced composition' },
+        { id: 'negativespace', nom: 'Espacio negativo', cmd: '/negativespace', es: 'amplio espacio vacío alrededor del sujeto', en: 'generous negative space around the subject' },
+        { id: 'framewithin', nom: 'Enmarcado', cmd: '/framewithinframe', es: 'sujeto enmarcado por una puerta o ventana', en: 'subject framed by a doorway or window' },
+        { id: 'foreground', nom: 'Primer plano con profundidad', cmd: '/foreground', es: 'elemento en primer plano que aporta profundidad', en: 'foreground element adding depth' }
+      ],
+      enfoque: [
+        { id: 'shallow', nom: 'Fondo desenfocado', cmd: '/shallowdepth', es: 'profundidad de campo reducida, con el fondo desenfocado', en: 'shallow depth of field with a soft, out-of-focus background' },
+        { id: 'deep', nom: 'Todo nítido', cmd: '/deepfocus', es: 'todo nítido, del primer plano al fondo', en: 'deep focus, foreground and background sharp' },
+        { id: 'rackfocus', nom: 'Cambio de foco', cmd: '/rackfocus', es: 'cambio de foco del primer plano al fondo', en: 'rack focus shifting from foreground to background' },
+        { id: 'bokeh', nom: 'Bokeh', cmd: '/bokeh', es: 'bokeh suave en las luces del fondo', en: 'soft bokeh in the background lights' },
+        { id: 'macro', nom: 'Macro', cmd: '/macro', es: 'vista macro de un detalle', en: 'extreme macro view of a detail' },
+        { id: 'eyefocus', nom: 'Foco en los ojos', cmd: '/eyefocus', es: 'foco nítido en los ojos del sujeto', en: 'sharp focus on the subject\'s eyes' }
+      ],
+      color: [
+        { id: 'cinematic', nom: 'Cinematográfico', cmd: '/cinematic', es: 'tratamiento de color cinematográfico, tipo película', en: 'cinematic, film-like color treatment' },
+        { id: 'warm', nom: 'Cálido', cmd: '/warm', es: 'tonos cálidos', en: 'warm color tones' },
+        { id: 'cool', nom: 'Frío', cmd: '/cool', es: 'atmósfera de color fría', en: 'cool color atmosphere' },
+        { id: 'tealorange', nom: 'Teal y naranja', cmd: '/tealorange', es: 'contraste entre teal y naranja', en: 'teal and orange contrast grade' },
+        { id: 'desat', nom: 'Desaturado', cmd: '/desaturate', es: 'colores apagados y desaturados', en: 'muted, desaturated colors' },
+        { id: 'vibrant', nom: 'Vibrante', cmd: '/vibrant', es: 'colores vívidos y energéticos', en: 'vivid, energetic colors' },
+        { id: 'bw', nom: 'Blanco y negro', cmd: '/bw', es: 'tratamiento en blanco y negro', en: 'black-and-white treatment' },
+        { id: 'filmgrain', nom: 'Grano de película', cmd: '/filmgrain', es: 'grano fotográfico de película, aspecto vintage', en: 'visible photographic film grain, vintage look' }
+      ],
+      mood: [
+        { id: 'intimo', nom: 'Íntimo', es: 'íntimo y observacional', en: 'intimate and observational' },
+        { id: 'dramatico', nom: 'Dramático', es: 'dramático y tenso', en: 'dramatic and tense' },
+        { id: 'epico', nom: 'Épico', es: 'épico y expansivo', en: 'epic and expansive' },
+        { id: 'sereno', nom: 'Sereno', es: 'sereno y contemplativo', en: 'serene and contemplative' },
+        { id: 'energico', nom: 'Enérgico', es: 'enérgico y dinámico', en: 'energetic and dynamic' },
+        { id: 'premium', nom: 'Premium', es: 'premium, comercial y pulido', en: 'premium, polished and commercial' },
+        { id: 'misterioso', nom: 'Misterioso', es: 'misterioso y atmosférico', en: 'mysterious and atmospheric' },
+        { id: 'personalizado', nom: 'Escribir el mío' }
+      ],
+      formato: [
+        { id: 'vertical', nom: 'Vertical 9:16', es: 'encuadre vertical 9:16', en: 'vertical 9:16 framing' },
+        { id: 'horizontal', nom: 'Horizontal 16:9', es: 'encuadre horizontal 16:9', en: 'horizontal 16:9 framing' },
+        { id: 'cuadrado', nom: 'Cuadrado 1:1', es: 'encuadre cuadrado 1:1', en: 'square 1:1 framing' }
+      ]
+    };
+
+    // max: cuántas opciones puede elegir el usuario en ese grupo.
+    const GRUPOS = {
+      tipo: { max: 1 }, referencia: { max: 1 }, encuadre: { max: 2 }, movimiento: { max: 1 },
+      luz: { max: 2 }, composicion: { max: 1 }, enfoque: { max: 1 }, color: { max: 1 },
+      mood: { max: 1 }, formato: { max: 1 }
+    };
+
+    const state = {
+      tipo: [], referencia: [], encuadre: [], movimiento: [], luz: [], composicion: [],
+      enfoque: [], color: [], mood: [], formato: [],
+      refDesc: '', sujeto: '', accion: '', entorno: '', moodCustom: '', idioma: 'en'
+    };
+    let paso = 0;
+    let mensaje = '';
+
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const limpia = (s) => (s || '').trim().replace(/\s+/g, ' ');
+    const punto = (s) => (!s ? '' : /[.!?]$/.test(s) ? s : s + '.');
+    const mayus = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : '');
+
+    function lista(grupo, idioma) {
+      return state[grupo]
+        .map((id) => OPCIONES[grupo].find((o) => o.id === id))
+        .filter(Boolean)
+        .map((o) => (idioma === 'en' ? o.en : o.es) || '')
+        .filter(Boolean);
+    }
+
+    function chips(grupo) {
+      const max = GRUPOS[grupo].max;
+      const pista = max === 1 ? 'Elegí una opción.' : `Elegí hasta ${max}.`;
+      const botones = OPCIONES[grupo].map((o) => {
+        const activo = state[grupo].includes(o.id);
+        const cmd = o.cmd ? `<small>${esc(o.cmd)}</small>` : '';
+        return `<button type="button" class="chip" data-grupo="${grupo}" data-opt="${o.id}" aria-pressed="${activo}">${esc(o.nom)}${cmd}</button>`;
+      }).join('');
+      return `<p class="ayuda">${pista}</p><div class="chips">${botones}</div>`;
+    }
+
+    function campo(nombre, etiqueta, ayuda, placeholder, filas = 2) {
+      return `<label for="c-${nombre}">${etiqueta}</label>` +
+        (ayuda ? `<p class="ayuda" style="margin:4px 0 0">${ayuda}</p>` : '') +
+        `<textarea class="campo" id="c-${nombre}" data-campo="${nombre}" rows="${filas}" placeholder="${esc(placeholder)}">${esc(state[nombre])}</textarea>`;
+    }
+
+    function construirPrompt(idioma) {
+      const en = idioma === 'en';
+      const T = en ? {
+        fija: 'A single cinematic still image.',
+        clip: 'A cinematic video shot.',
+        luz: 'Lighting',
+        animo: 'Mood',
+        refVideo: 'Use the uploaded image as the starting frame and keep its subject, colors and details unchanged.',
+        refImagen: 'Use the uploaded image as the base and keep its subject, colors and details unchanged.',
+        refDesc: 'Keep the look consistent with this reference: '
+      } : {
+        fija: 'Una única imagen fija cinematográfica.',
+        clip: 'Un plano de video cinematográfico.',
+        luz: 'Iluminación',
+        animo: 'Ánimo',
+        refVideo: 'Usa la imagen cargada como primer fotograma y conserva sin cambios su sujeto, colores y detalles.',
+        refImagen: 'Usa la imagen cargada como base y conserva sin cambios su sujeto, colores y detalles.',
+        refDesc: 'Mantén el mismo aspecto de esta referencia: '
+      };
+
+      const esVideo = state.tipo[0] === 'video';
+      const referencia = state.referencia[0];
+      const partes = [esVideo ? T.clip : T.fija];
+
+      const escena = [state.sujeto, state.accion, state.entorno].map(limpia).filter(Boolean).map((s) => mayus(punto(s))).join(' ');
+      if (escena) partes.push(escena);
+
+      const encuadre = lista('encuadre', idioma);
+      if (encuadre.length) partes.push(punto(mayus(encuadre.join(', '))));
+
+      if (esVideo) {
+        const movimiento = lista('movimiento', idioma)[0];
+        if (movimiento) partes.push(punto(mayus(movimiento)));
+      }
+
+      const luz = lista('luz', idioma);
+      if (luz.length) partes.push(punto(`${T.luz}: ${luz.join(', ')}`));
+
+      const composicion = [...lista('composicion', idioma), ...lista('enfoque', idioma)];
+      if (composicion.length) partes.push(punto(mayus(composicion.join(', '))));
+
+      const color = lista('color', idioma);
+      if (color.length) partes.push(punto(mayus(color.join(', '))));
+
+      const animo = state.mood.includes('personalizado') ? limpia(state.moodCustom) : lista('mood', idioma)[0];
+      if (animo) partes.push(punto(`${T.animo}: ${animo}`));
+
+      if (referencia === 'real') partes.push(esVideo ? T.refVideo : T.refImagen);
+      const desc = limpia(state.refDesc);
+      if ((referencia === 'real' || referencia === 'ref') && desc) partes.push(punto(T.refDesc + desc));
+
+      const formato = lista('formato', idioma)[0];
+      if (formato) partes.push(punto(mayus(formato)));
+
+      return partes.join(' ');
+    }
+
+    // Cada paso decide qué pregunta muestra y qué debe cumplirse para avanzar.
+    const PASOS = [
+      {
+        id: 'tipo',
+        titulo: '¿Qué querés crear?',
+        ayuda: 'Una imagen fija y un video piden instrucciones distintas: el video necesita además describir cómo se mueven la cámara y el sujeto.',
+        html: () => chips('tipo'),
+        valida: () => state.tipo.length ? '' : 'Elegí una opción para continuar.'
+      },
+      {
+        id: 'referencia',
+        titulo: '¿Partís de una imagen de referencia?',
+        ayuda: 'Si tenés una imagen real, Flow puede usarla como base para conservar el sujeto exacto. Si no, la descripción sirve para orientar el estilo.',
+        html: () => chips('referencia') + (state.referencia[0] === 'real' || state.referencia[0] === 'ref'
+          ? campo('refDesc', 'Describí la imagen o la referencia', 'Lo que aparece en la imagen: quién o qué es, colores principales, ambiente.', 'Ej.: botella de perfume negra sobre mármol, con reflejos dorados', 3)
+          : ''),
+        valida: () => state.referencia.length ? '' : 'Elegí una opción para continuar.'
+      },
+      {
+        id: 'escena',
+        titulo: 'La escena',
+        ayuda: 'Empezá por lo que más importa: quién o qué aparece, qué hace y dónde ocurre. Un sujeto concreto da mejores resultados que uno genérico.',
+        html: () => campo('sujeto', 'Sujeto (quién o qué)', 'Ej.: un fotógrafo callejero con una cámara vintage', 'Escribí el sujeto principal', 2) +
+          campo('accion', 'Acción (qué hace)', 'Ej.: camina despacio entre puestos y se detiene a fotografiar', 'Qué está haciendo', 2) +
+          campo('entorno', 'Entorno (dónde)', 'Ej.: un mercado nocturno estrecho, con letreros colgantes y pavimento mojado', 'Dónde ocurre', 2),
+        valida: () => limpia(state.sujeto) ? '' : 'Escribí al menos el sujeto para continuar.'
+      },
+      {
+        id: 'encuadre',
+        titulo: 'El encuadre',
+        ayuda: 'Define la posición de la cámara respecto del sujeto: si lo muestra de cerca, desde abajo o desde el punto de vista de alguien. Podés omitirlo.',
+        html: () => chips('encuadre'),
+        valida: () => ''
+      },
+      {
+        id: 'movimiento',
+        titulo: 'El movimiento de cámara',
+        ayuda: 'Describe cómo se desplaza la cámara o el sujeto durante el plano. Elegir “Cámara fija” evita que el modelo invente movimientos.',
+        html: () => chips('movimiento'),
+        valida: () => ''
+      },
+      {
+        id: 'luz',
+        titulo: 'La luz',
+        ayuda: 'La misma escena cambia de sentido según la luz: no es igual una calle al atardecer que la misma calle bajo neón. Elegí hasta dos.',
+        html: () => chips('luz'),
+        valida: () => ''
+      },
+      {
+        id: 'composicion',
+        titulo: 'Composición y enfoque',
+        ayuda: 'La composición indica dónde se ubica el sujeto en el cuadro. El enfoque indica qué parte de la imagen queda nítida. Pensá también en dónde irían un texto o un logo.',
+        html: () => '<label>Composición</label>' + chips('composicion') +
+          '<label style="margin-top:18px">Enfoque</label>' + chips('enfoque'),
+        valida: () => ''
+      },
+      {
+        id: 'estilo',
+        titulo: 'Color, ánimo y formato',
+        ayuda: 'El color define la atmósfera general, el ánimo indica la emoción que querés transmitir y el formato, dónde se va a publicar.',
+        html: () => '<label>Color y estilo</label>' + chips('color') +
+          '<label style="margin-top:18px">Ánimo</label>' + chips('mood') +
+          (state.mood.includes('personalizado') ? campo('moodCustom', 'Describí el ánimo', '', 'Ej.: nostalgia tranquila', 1) : '') +
+          '<label style="margin-top:18px">Formato</label>' + chips('formato'),
+        valida: () => ''
+      },
+      {
+        id: 'resultado',
+        titulo: 'Tu prompt para Flow',
+        ayuda: 'Copiá el texto y pegalo en el campo de prompt de Flow. Si cargaste una imagen real, subila también como referencia antes de generar.',
+        html: () => {
+          const texto = construirPrompt(state.idioma);
+          const cmds = Object.keys(GRUPOS)
+            .flatMap((g) => state[g].map((id) => OPCIONES[g].find((o) => o.id === id)))
+            .filter((o) => o && o.cmd)
+            .map((o) => o.cmd);
+          return `<div class="idioma" role="group" aria-label="Idioma del prompt">
+              <button type="button" class="chip" data-idioma="en" aria-pressed="${state.idioma === 'en'}">Inglés (recomendado)</button>
+              <button type="button" class="chip" data-idioma="es" aria-pressed="${state.idioma === 'es'}">Español</button>
+            </div>
+            <label for="resultado-texto">Prompt</label>
+            <textarea class="campo resultado-texto" id="resultado-texto" readonly>${esc(texto)}</textarea>
+            <div class="nav" style="margin-top:12px">
+              <button type="button" class="btn primario" data-accion="copiar">Copiar prompt</button>
+            </div>
+            ${cmds.length ? `<p class="nota">Atajos del documento de referencia que quedaron incorporados como descripción: <span class="atajos">${esc(cmds.join(' '))}</span></p>` : ''}
+            <p class="nota">Los textos que escribiste se insertan tal cual. Si los escribiste en español y elegiste inglés, el prompt mezcla idiomas; en ese caso conviene traducir solo esas frases.</p>`;
+        },
+        valida: () => ''
+      }
+    ];
+
+    const visibles = () => PASOS.filter((p) => !(p.id === 'movimiento' && state.tipo[0] === 'imagen'));
+
+    function render() {
+      const pasos = visibles();
+      if (paso > pasos.length - 1) paso = pasos.length - 1;
+      const actual = pasos[paso];
+      const esUltimo = paso === pasos.length - 1;
+
+      document.getElementById('progreso').innerHTML = pasos
+        .map((_, i) => `<span class="${i < paso ? 'hecho' : i === paso ? 'actual' : ''}"></span>`).join('');
+
+      document.getElementById('app').innerHTML = `
+        <h2>${actual.titulo}</h2>
+        <p class="ayuda">${actual.ayuda}</p>
+        ${actual.html()}
+        <div class="aviso ${mensaje.startsWith('✓') ? 'ok' : ''}" role="status">${esc(mensaje.replace(/^✓\s*/, ''))}</div>
+        ${esUltimo ? `
+          <div class="nav">
+            <button type="button" class="btn" data-accion="atras">Atrás</button>
+            <button type="button" class="btn" data-accion="reiniciar">Empezar de nuevo</button>
+          </div>` : `
+          <div class="nav">
+            <button type="button" class="btn" data-accion="atras" ${paso === 0 ? 'disabled' : ''}>Atrás</button>
+            <button type="button" class="btn primario" data-accion="siguiente">${paso === pasos.length - 2 ? 'Ver resultado' : 'Siguiente'}</button>
+          </div>`}`;
+      mensaje = '';
+    }
+
+    function avanzar() {
+      const pasos = visibles();
+      const actual = pasos[paso];
+      const error = actual.valida();
+      if (error) { mensaje = error; render(); return; }
+      paso = Math.min(paso + 1, pasos.length - 1);
+      render();
+    }
+
+    function alternar(grupo, id) {
+      const max = GRUPOS[grupo].max;
+      const lista = state[grupo];
+      if (lista.includes(id)) {
+        state[grupo] = lista.filter((x) => x !== id);
+      } else if (lista.length < max) {
+        state[grupo] = [...lista, id];
+      } else if (max === 1) {
+        state[grupo] = [id];
+      } else {
+        mensaje = `Podés elegir hasta ${max}. Quitá una opción para cambiarla.`;
+      }
+    }
+
+    const app = document.getElementById('app');
+
+    app.addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-opt]');
+      if (chip) {
+        alternar(chip.dataset.grupo, chip.dataset.opt);
+        render();
+        return;
+      }
+      const idioma = e.target.closest('[data-idioma]');
+      if (idioma) { state.idioma = idioma.dataset.idioma; render(); return; }
+
+      const accion = e.target.closest('[data-accion]');
+      if (!accion) return;
+      switch (accion.dataset.accion) {
+        case 'siguiente': avanzar(); break;
+        case 'atras': paso = Math.max(paso - 1, 0); render(); break;
+        case 'reiniciar':
+          Object.keys(state).forEach((k) => {
+            if (Array.isArray(state[k])) state[k] = [];
+            else if (k === 'idioma') state[k] = 'en';
+            else state[k] = '';
+          });
+          paso = 0; mensaje = ''; render();
+          break;
+        case 'copiar': copiar(); break;
+      }
+    });
+
+    app.addEventListener('input', (e) => {
+      const campo = e.target.dataset.campo;
+      if (campo) state[campo] = e.target.value;
+    });
+
+    function copiar() {
+      const texto = document.getElementById('resultado-texto').value;
+      const confirmar = () => { mensaje = '✓ Prompt copiado. Pegalo en Flow.'; render(); };
+      const respaldo = () => {
+        const area = document.getElementById('resultado-texto');
+        area.removeAttribute('readonly');
+        area.select();
+        document.execCommand('copy');
+        area.setAttribute('readonly', '');
+        confirmar();
+      };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(texto).then(confirmar, respaldo);
+      } else {
+        respaldo();
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>
