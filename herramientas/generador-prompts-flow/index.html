@@ -90,6 +90,11 @@
       font: .92rem/1.6 ui-monospace, Menlo, Consolas, monospace;
     }
     .codigo .btn { margin-top: 10px; }
+    .ia-barra { margin-top: 8px; }
+    .btn.ia { font-size: .9rem; padding: 7px 12px; }
+    .propuesta { margin-top: 10px; padding: 12px; border: 1px dashed var(--accent); border-radius: 10px; background: var(--accent-soft); }
+    .propuesta p { margin: 4px 0 8px; }
+    .propuesta .acciones { margin-top: 8px; }
     .atajos { font: .85rem ui-monospace, Menlo, Consolas, monospace; color: var(--accent); word-break: break-word; }
     @media (max-width: 480px) {
       .panel { padding: 14px; }
@@ -175,6 +180,53 @@
     let fase = 0;
     let historia = [];
     let aviso = '';
+    // Mejora con IA: solo disponible cuando la página corre dentro de un visor de Claude
+    // que concede la capacidad "sample". Fuera de ahí, los botones no aparecen.
+    let sampleFn = null;
+    let ia = null;
+    let iaId = 0;
+
+    function campoIA(nombre, filas, placeholder) {
+      const sug = ia && ia.campo === nombre ? ia : null;
+      const boton = sampleFn
+        ? `<div class="ia-barra"><button type="button" class="btn ia" data-accion="mejorar" data-campo="${nombre}" ${sug && sug.cargando ? 'disabled' : ''}>${sug && sug.cargando ? 'Mejorando…' : '✨ Mejorar con IA'}</button></div>`
+        : '';
+      const propuesta = sug && sug.cargando ? '' : sug && sug.error
+        ? `<div class="propuesta"><p>${esc(sug.error)}</p><div class="acciones"><button type="button" class="btn" data-accion="descartar">Cerrar</button></div></div>`
+        : sug && sug.texto
+          ? `<div class="propuesta"><p class="nota">Propuesta de mejora (revisala antes de usarla):</p><p>${esc(sug.texto)}</p>
+            <div class="acciones"><button type="button" class="btn" data-accion="descartar">Descartar</button>
+            <button type="button" class="btn primario" data-accion="usar" data-campo="${nombre}">Usar esta versión</button></div></div>`
+          : '';
+      return `<textarea class="campo" rows="${filas}" data-campo="${nombre}" placeholder="${esc(placeholder)}">${esc(answers[nombre])}</textarea>${boton}${propuesta}`;
+    }
+
+    async function mejorar(nombre) {
+      const original = limpia(answers[nombre]);
+      if (!original) { aviso = 'Escribí algo primero para poder mejorarlo.'; render(); return; }
+      const id = ++iaId;
+      ia = { campo: nombre, cargando: true };
+      render();
+      const tipo = answers.tipo ? TIPOS[answers.tipo].nom.toLowerCase() : 'sin definir';
+      const prompt = `Eres un editor experto en dirección de arte y redacción de prompts para video e imagen con IA (Google Flow).
+Reescribe el texto de abajo para que describa la toma con claridad y precisión visual. Tipo de toma: ${tipo}.
+Conserva el significado y los datos que dio la persona; no inventes elementos nuevos. Escribe en el mismo idioma del texto original.
+Responde solo con el texto mejorado, en un párrafo de hasta 60 palabras, sin comillas ni explicaciones.
+
+Texto original:
+"""
+${original}
+"""`;
+      try {
+        const { text } = await sampleFn(prompt, { modelTier: 'quick', cache: false });
+        if (id !== iaId) return;
+        ia = { campo: nombre, texto: limpia(text) };
+      } catch (e) {
+        if (id !== iaId) return;
+        ia = { campo: nombre, error: 'No pude mejorar el texto en este momento. Podés seguir con tu redacción.' };
+      }
+      render();
+    }
 
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const fmt = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
@@ -227,7 +279,7 @@
         panel: () => `<h3>Tipo de toma</h3>
           <div class="chips">${Object.entries(TIPOS).map(([id, t]) => chip('tipo', id, t.nom, null, t.nota)).join('')}</div>
           <h3>Descripción</h3>
-          <textarea class="campo" rows="3" data-campo="escena" placeholder="Ej.: una ciclista atraviesa un bosque nevado al amanecer, pedaleando entre los árboles">${esc(answers.escena)}</textarea>`,
+          ${campoIA('escena', 3, 'Ej.: una ciclista atraviesa un bosque nevado al amanecer, pedaleando entre los árboles')}`,
         valida: () => {
           if (!answers.tipo) return 'Elegí si la toma es una persona, un producto o una escena.';
           if (!limpia(answers.escena)) return 'Describí qué ocurre para seguir.';
@@ -244,7 +296,7 @@
         panel: () => `<h3>Formato</h3>
           <div class="chips">${Object.entries(FORMATOS).map(([id, f]) => chip('formato', id, f.nom, null, f.nota)).join('')}</div>
           <h3>Cámara</h3>${chipsCamara()}
-          ${answers.camara === 'otro' ? `<textarea class="campo" rows="2" data-campo="camaraTexto" placeholder="Ej.: la cámara sube desde el suelo hasta mostrar el paisaje completo">${esc(answers.camaraTexto)}</textarea>` : ''}`,
+          ${answers.camara === 'otro' ? campoIA('camaraTexto', 2, 'Ej.: la cámara sube desde el suelo hasta mostrar el paisaje completo') : ''}`,
         valida: () => {
           if (!answers.formato) return 'Elegí un formato.';
           if (!answers.camara) return 'Elegí una opción de cámara.';
@@ -260,7 +312,7 @@
           <h3>Paleta de colores</h3>
           <div class="chips">${Object.entries(PALETAS).map(([id, p]) => chip('paleta', id, p.nom)).join('')}</div>
           <h3>Estado de ánimo</h3>
-          <textarea class="campo" rows="2" data-campo="animo" placeholder="Ej.: nostalgia tranquila, o tensión creciente">${esc(answers.animo)}</textarea>`,
+          ${campoIA('animo', 2, 'Ej.: nostalgia tranquila, o tensión creciente')}`,
         valida: () => (answers.luz ? '' : 'Elegí una iluminación para seguir.'),
         resumen: () => `Luz: ${LUCES[answers.luz].nom}${answers.paleta ? ' · Paleta: ' + PALETAS[answers.paleta].nom : ''}${limpia(answers.animo) ? ' · Ánimo: ' + limpia(answers.animo) : ''}`
       }
@@ -322,6 +374,8 @@
     function reiniciar() {
       Object.assign(answers, { tipo: null, escena: '', formato: null, camara: null, camaraTexto: '', luz: null, paleta: null, animo: '' });
       fase = 0;
+      ia = null;
+      iaId++;
       historia = [mensajeBot(FASES[0].mensaje())];
       aviso = '';
       render();
@@ -360,6 +414,9 @@
       const accion = e.target.closest('[data-accion]');
       if (!accion) return;
       if (accion.dataset.accion === 'enviar') enviar();
+      if (accion.dataset.accion === 'mejorar') mejorar(accion.dataset.campo);
+      if (accion.dataset.accion === 'usar') { answers[accion.dataset.campo] = ia.texto; ia = null; render(); }
+      if (accion.dataset.accion === 'descartar') { ia = null; render(); }
       if (accion.dataset.accion === 'reiniciar') reiniciar();
     });
 
@@ -371,6 +428,11 @@
     document.getElementById('chat').addEventListener('click', (e) => {
       if (e.target.closest('[data-accion="copiar"]')) copiar();
     });
+
+    // La capacidad se pide al cargar, sin consentimiento: el permiso del visor se pide en el primer clic.
+    if (window.claude && window.claude.use) {
+      window.claude.use('sample').then((s) => { sampleFn = s; render(); }).catch(() => {});
+    }
 
     reiniciar();
   </script>
